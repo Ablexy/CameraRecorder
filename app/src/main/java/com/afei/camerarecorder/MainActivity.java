@@ -4,6 +4,7 @@ import android.Manifest;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 import android.util.Size;
@@ -23,15 +24,26 @@ import com.afei.camerarecorder.databinding.ActivityMainBinding;
 import com.afei.camerarecorder.normal.CameraActivity;
 import com.afei.camerarecorder.opengl.GLCameraActivity;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public class MainActivity extends AppCompatActivity implements View.OnClickListener {
 
     private final String TAG = getClass().getSimpleName();
     private static final int REQUEST_CODE = 200;
-    private static final String[] PERMISSIONS = new String[]{
+    private static final String[] PERMISSIONS = Build.VERSION.SDK_INT >= 33 ?
+            new String[]{
+                    Manifest.permission.CAMERA,
+                    Manifest.permission.RECORD_AUDIO,
+                    Manifest.permission.READ_MEDIA_VIDEO
+            } : Build.VERSION.SDK_INT >= 29 ?
+            new String[]{
+                    Manifest.permission.CAMERA,
+                    Manifest.permission.RECORD_AUDIO
+            } : new String[]{
+            Manifest.permission.CAMERA,
             Manifest.permission.RECORD_AUDIO,
-            Manifest.permission.CAMERA
+            Manifest.permission.WRITE_EXTERNAL_STORAGE
     };
 
     private ActivityMainBinding mBinding;
@@ -137,11 +149,18 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
     }
 
     private boolean checkPermission() {
+        ArrayList<String> needRequest = new ArrayList<>();
         for (String permission : PERMISSIONS) {
             if (ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this, PERMISSIONS, REQUEST_CODE);
-                return false;
+                needRequest.add(permission);
             }
+        }
+
+        if (!needRequest.isEmpty()) {
+            ActivityCompat.requestPermissions(this,
+                    needRequest.toArray(new String[0]),
+                    REQUEST_CODE);
+            return false;
         }
         return true;
     }

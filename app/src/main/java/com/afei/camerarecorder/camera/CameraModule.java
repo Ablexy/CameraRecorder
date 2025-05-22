@@ -2,6 +2,7 @@ package com.afei.camerarecorder.camera;
 
 import android.Manifest;
 import android.app.Activity;
+import android.content.ContentValues;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.hardware.camera2.CameraAccessException;
@@ -15,21 +16,26 @@ import android.hardware.camera2.params.OutputConfiguration;
 import android.hardware.camera2.params.SessionConfiguration;
 import android.media.MediaCodec;
 import android.media.MediaRecorder;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.provider.MediaStore;
 import android.util.Log;
 import android.util.Size;
 import android.view.Surface;
 
 import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 
 import java.io.File;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.Locale;
 import java.util.concurrent.Executor;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -108,6 +114,13 @@ public class CameraModule {
     }
 
     public void openCamera() {
+        // 仅低版本需要存储权限检查
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
+                ContextCompat.checkSelfPermission(mActivity, Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                        != PackageManager.PERMISSION_GRANTED) {
+            Log.e(TAG, "Missing storage permission");
+            return;
+        }
         if (mCameraState != CAMERA_STATE_CLOSE) {
             Log.e(TAG, "only could open camera when closed");
             return;
@@ -145,6 +158,16 @@ public class CameraModule {
         } finally {
             mCameraStateLock.unlock();
         }
+    }
+
+    private Uri getMediaStoreUri() throws IOException {
+        ContentValues values = new ContentValues();
+        values.put(MediaStore.Video.Media.DISPLAY_NAME, "VID_"+new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date()));
+        values.put(MediaStore.Video.Media.MIME_TYPE, "video/mp4");
+        values.put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_DCIM + "/CameraRecorder");
+        return mActivity.getContentResolver().insert(
+                MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values
+        );
     }
 
     private void startBackgroundThread() {
@@ -293,49 +316,63 @@ public class CameraModule {
             Log.e(TAG, "configRecorder failed! mediaRecorder is null");
             return null;
         }
-        mediaRecorder.reset();
-        // Sets the video source to be used for recording
-        mediaRecorder.setVideoSource(MediaRecorder.VideoSource.SURFACE);
-        // Sets the video encoding bit rate for recording
-        mediaRecorder.setVideoEncodingBitRate(mPreviewSize.getWidth() * mPreviewSize.getHeight() * 8);
-        // Sets the audio source to be used for recording
-        mediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
-        // Sets the audio encoding bit rate for recording
-        mediaRecorder.setAudioEncodingBitRate(96000);
-        // Sets the audio sampling rate for recording
-        mediaRecorder.setAudioSamplingRate(44100);
-        // Set video frame capture rate
-        mediaRecorder.setCaptureRate(30);
-        // Sets the orientation hint for output video playback. Values: 0, 90, 180, 270
-        mediaRecorder.setOrientationHint(mDisplayRotation);
+        try {
+            mediaRecorder.reset();
+            // Sets the video source to be used for recording
+            mediaRecorder.setVideoSource(MediaRecorder.VideoSource.SURFACE);
+            // Sets the video encoding bit rate for recording
+            mediaRecorder.setVideoEncodingBitRate(mPreviewSize.getWidth() * mPreviewSize.getHeight() * 8);
+            // Sets the audio source to be used for recording
+            mediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
+            // Sets the audio encoding bit rate for recording
+            mediaRecorder.setAudioEncodingBitRate(96000);
+            // Sets the audio sampling rate for recording
+            mediaRecorder.setAudioSamplingRate(44100);
+            // Set video frame capture rate
+            mediaRecorder.setCaptureRate(30);
+            // Sets the orientation hint for output video playback. Values: 0, 90, 180, 270
+            mediaRecorder.setOrientationHint(mDisplayRotation);
 
-        // Sets the format of the output file produced during recording
-        mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
-        // Sets the width and height of the video to be captured
-        mediaRecorder.setVideoSize(mPreviewSize.getWidth(), mPreviewSize.getHeight());
-        // Sets the frame rate of the video to be captured
-        mediaRecorder.setVideoFrameRate(30);
-        // Sets the video encoder to be used for recording
-        mediaRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
-        // Sets the audio encoder to be used for recording
-        mediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
-        // a persistent input surface created by MediaCodec.createPersistentInputSurface()
-        mediaRecorder.setInputSurface(mRecordSurface);
-        File outputFile = getOutputFile();
-        mediaRecorder.setOutputFile(outputFile);
-        mediaRecorder.prepare();
-        mIsRecording = false;
-        return outputFile;
+            // Sets the format of the output file produced during recording
+            mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
+            // Sets the width and height of the video to be captured
+            mediaRecorder.setVideoSize(mPreviewSize.getWidth(), mPreviewSize.getHeight());
+            // Sets the frame rate of the video to be captured
+            mediaRecorder.setVideoFrameRate(30);
+            // Sets the video encoder to be used for recording
+            mediaRecorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
+            // Sets the audio encoder to be used for recording
+            mediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
+            mediaRecorder.setMaxDuration(30*1000);
+            // a persistent input surface created by MediaCodec.createPersistentInputSurface()
+            mediaRecorder.setInputSurface(mRecordSurface);
+            File outputFile = getOutputFile();
+            mediaRecorder.setOutputFile(mActivity.getContentResolver().openFileDescriptor(getMediaStoreUri(), "w").getFileDescriptor());
+            mediaRecorder.prepare();
+            mIsRecording = false;
+            return outputFile;
+        }catch (IOException e) {
+            Log.e(TAG, "configRecorder error: " + e.getMessage());
+        }
+        return null;
     }
 
     private File getOutputFile() {
-        File saveDirectory = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM),
-                "CameraRecorder");
-        saveDirectory.mkdirs();
-        SimpleDateFormat simpleDateFormat = new SimpleDateFormat("yyyyMMdd_HHmmss");
-        String fileName = simpleDateFormat.format(new Date(System.currentTimeMillis())) + ".mp4";
-        File outputFile = new File(saveDirectory, fileName);
-        return outputFile;
+        File saveDirectory;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // 使用系统推荐的媒体存储目录（无需权限）
+            saveDirectory = new File(mActivity.getExternalFilesDir(Environment.DIRECTORY_DCIM), "CameraRecorder");
+        } else {
+            saveDirectory = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM), "CameraRecorder");
+        }
+        // 确保目录存在
+        if (!saveDirectory.exists() && !saveDirectory.mkdirs()) {
+            Log.e(TAG, "Failed to create directory: " + saveDirectory);
+            return null;
+        }
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US);
+        String fileName = "VID_" + sdf.format(new Date()) + ".mp4";
+        return new File(saveDirectory, fileName);
     }
 
     public void startRecorder() {

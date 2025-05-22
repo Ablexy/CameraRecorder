@@ -1,8 +1,10 @@
 package com.afei.camerarecorder.opengl;
 
 import android.content.res.Resources;
+import android.graphics.Bitmap;
 import android.opengl.GLES11Ext;
 import android.opengl.GLES30;
+import android.opengl.GLUtils;
 import android.util.Log;
 
 import java.io.IOException;
@@ -11,6 +13,7 @@ import java.io.InputStream;
 public class OpenGLUtils {
 
     private static final String TAG = "OpenGLUtils";
+    public static final int NO_TEXTURE = -1;
 
     public static int getExternalOESTextureID() {
         int[] texture = new int[1];
@@ -113,5 +116,25 @@ public class OpenGLUtils {
             e.printStackTrace();
         }
         return result;
+    }
+
+    public static int createTexture(Bitmap bitmap) {
+        final int[] textureIds = new int[1];
+        GLES30.glGenTextures(1, textureIds, 0);
+        final int textureId = textureIds[0];
+
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, textureId);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE);
+
+        GLUtils.texImage2D(GLES30.GL_TEXTURE_2D, 0, bitmap, 0);
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, 0);
+
+        if (textureId == 0) {
+            throw new RuntimeException("Failed to create texture");
+        }
+        return textureId;
     }
 }
